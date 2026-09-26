@@ -635,6 +635,13 @@
       <button class="btn ghost" id="joinFamilyBtn" style="width:100%;">Join a family</button>
       <p class="auth-switch"><a href="#" id="authSignOutLink">Sign out</a></p>
     </div>
+
+    <div id="authFamilyCreated" class="auth-step" style="display:none;">
+      <h2>Your family is ready 🎉</h2>
+      <p class="auth-msg">Share this invite code with the rest of your family — they'll enter it when they sign up.</p>
+      <div style="text-align:center; font-size:32px; font-weight:800; letter-spacing:0.1em; background:var(--paper-dim); border-radius:14px; padding:18px; margin-bottom:16px;" id="newFamilyCodeDisplay">ABC123</div>
+      <button class="btn primary" id="familyCreatedContinue" style="width:100%;">Continue to the app</button>
+    </div>
   </div>
 </div>
 
@@ -799,6 +806,14 @@
   <!-- Members sheet -->
   <div class="sheet" id="membersSheet">
     <h3>Family members</h3>
+    <div id="familySharingBlock" style="background:var(--paper-dim); border-radius:14px; padding:12px 14px; margin-bottom:16px;">
+      <div style="font-size:12.5px; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em; margin-bottom:6px;">Invite someone to <span id="familyNameDisplay">your family</span></div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div id="inviteCodeDisplay" style="font-size:22px; font-weight:800; letter-spacing:0.08em; flex:1;">——————</div>
+        <button class="btn ghost" id="copyInviteCodeBtn" style="flex:0 0 auto; padding:9px 14px;">Copy</button>
+      </div>
+      <div class="auth-msg" style="margin:8px 0 0;">Share this code — they'll enter it when they sign up, under "Join a family."</div>
+    </div>
     <div id="memberList"></div>
     <div class="field" style="margin-top:14px;">
       <label id="memberFormLabel">Add a member</label>
@@ -992,6 +1007,8 @@
   let firestore = null;
   let currentUser = null;
   let familyId = null;
+  let familyName = null;
+  let familyInviteCode = null;
 
   const PALETTE = ["#B23A48", "#C1652E", "#B8860B", "#6E8F1F", "#1F7A6C", "#2E6DA4", "#5B4B8A", "#A03D8F", "#6B4F3B", "#4A4F57"];
 
@@ -2038,6 +2055,8 @@
   function openMembersSheet() {
     renderMembersSheetList();
     resetMemberForm();
+    document.getElementById("familyNameDisplay").textContent = familyName || "your family";
+    document.getElementById("inviteCodeDisplay").textContent = familyInviteCode || "——————";
     openScrim();
     document.getElementById("membersSheet").classList.add("show");
   }
@@ -2961,6 +2980,16 @@
   document.getElementById("membersBtn").addEventListener("click", openMembersSheet);
   document.getElementById("membersClose").addEventListener("click", closeMembersSheet);
   document.getElementById("memberAdd").addEventListener("click", addMember);
+  document.getElementById("copyInviteCodeBtn").addEventListener("click", () => {
+    if (!familyInviteCode) return;
+    const btn = document.getElementById("copyInviteCodeBtn");
+    const done = (ok) => { btn.textContent = ok ? "Copied!" : "Copy"; setTimeout(() => { btn.textContent = "Copy"; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(familyInviteCode).then(() => done(true)).catch(() => done(false));
+    } else {
+      done(false);
+    }
+  });
   document.getElementById("holidaysBtn").addEventListener("click", openHolidaysSheet);
   document.getElementById("holidaysClose").addEventListener("click", closeHolidaysSheet);
   document.getElementById("holidayCountrySelect").addEventListener("change", (ev) => {
@@ -3112,7 +3141,7 @@
 
   // ---------- Auth / family flow ----------
   function showAuthStep(name) {
-    ["authSetupNeeded", "authLoading", "authLogin", "authSignup", "authFamily"].forEach(id => {
+    ["authSetupNeeded", "authLoading", "authLogin", "authSignup", "authFamily", "authFamilyCreated"].forEach(id => {
       document.getElementById(id).style.display = (id === name) ? "" : "none";
     });
     document.getElementById("authOverlay").classList.remove("hidden");
@@ -3140,6 +3169,13 @@
       const udata = udoc.exists ? udoc.data() : null;
       if (udata && udata.familyId) {
         familyId = udata.familyId;
+        try {
+          const famDoc = await firestore.collection("families").doc(familyId).get();
+          if (famDoc.exists) {
+            familyName = famDoc.data().name || null;
+            familyInviteCode = famDoc.data().inviteCode || null;
+          }
+        } catch (e) { console.error(e); }
         enterApp();
       } else {
         showAuthStep("authFamily");
@@ -3179,7 +3215,10 @@
         email: currentUser.email, familyId: famRef.id
       }, { merge: true });
       familyId = famRef.id;
-      enterApp();
+      familyName = name;
+      familyInviteCode = code;
+      document.getElementById("newFamilyCodeDisplay").textContent = code;
+      showAuthStep("authFamilyCreated");
     } catch (err) {
       console.error(err);
       setAuthError("createFamilyError", friendlyAuthError(err));
@@ -3198,6 +3237,8 @@
         email: currentUser.email, familyId: fam.id
       }, { merge: true });
       familyId = fam.id;
+      familyName = fam.data().name || null;
+      familyInviteCode = fam.data().inviteCode || null;
       enterApp();
     } catch (err) {
       console.error(err);
@@ -3250,6 +3291,7 @@
   document.getElementById("signupApple").addEventListener("click", appleSignIn);
   document.getElementById("createFamilyBtn").addEventListener("click", createFamily);
   document.getElementById("joinFamilyBtn").addEventListener("click", joinFamily);
+  document.getElementById("familyCreatedContinue").addEventListener("click", enterApp);
 
   initFirebase();
 })();
