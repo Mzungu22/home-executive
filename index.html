@@ -657,6 +657,7 @@
         <button class="icon-btn" id="holidaysBtn" title="Public holidays">🌐</button>
         <button class="icon-btn" id="termsBtn" title="School terms">🏫</button>
         <button class="icon-btn" id="membersBtn" title="Family members">👪</button>
+        <button class="icon-btn" id="aiSettingsBtn" title="AI settings">🤖</button>
         <button class="icon-btn" id="signOutBtn" title="Sign out">🚪</button>
       </div>
     </div>
@@ -826,6 +827,25 @@
     </div>
   </div>
 
+  <!-- AI settings sheet -->
+  <div class="sheet" id="aiSettingsSheet">
+    <h3>Connect your own AI</h3>
+    <p class="auth-msg">This powers ingredient scanning in the Meals tab (pasted recipe text or a photo). It uses your own Anthropic API key, called directly from your device — nobody else's usage or billing is involved, and other family members won't see your key.</p>
+    <div class="field">
+      <label>Anthropic API key</label>
+      <input type="password" id="aiApiKeyInput" placeholder="sk-ant-...">
+    </div>
+    <div class="auth-error" id="aiKeyError"></div>
+    <p class="empty-state" style="text-align:left; padding:0 0 10px;">Don't have one? Create a free account and generate a key at <span style="font-weight:600;">console.anthropic.com</span> — look for "API Keys" in account settings. Usage is billed by Anthropic separately from anything else; scanning a recipe typically costs a fraction of a cent.</p>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="removeAiKeyBtn">Remove key</button>
+      <button class="btn primary" id="saveAiKeyBtn">Save</button>
+    </div>
+    <div class="sheet-actions" style="margin-top:8px;">
+      <button class="btn ghost" id="aiSettingsClose" style="flex:1;">Close</button>
+    </div>
+  </div>
+
   <!-- Holidays sheet -->
   <div class="sheet" id="holidaysSheet">
     <h3>Public holidays</h3>
@@ -937,21 +957,27 @@
     </div>
     <div class="field" id="quickImportField">
       <label>Quick add ingredients (optional)</label>
-      <div class="chip-row" style="margin-bottom:8px;">
-        <button type="button" class="chip" id="showImportText">📋 Paste recipe text</button>
-        <button type="button" class="chip" id="showImportPhoto">📷 Scan a photo</button>
+      <div id="quickImportNoKey" style="display:none;">
+        <div class="empty-state" style="text-align:left; padding:0 0 8px;">Connect your own AI to scan recipe text or photos into ingredients automatically.</div>
+        <button type="button" class="btn ghost" id="connectAiPrompt" style="width:100%;">🤖 Connect your AI</button>
       </div>
-      <div id="importTextPanel" style="display:none; margin-bottom:10px;">
-        <input type="text" id="importUrl" placeholder="Recipe link (optional, for your reference)" style="margin-bottom:8px;">
-        <textarea id="importText" placeholder="Paste the ingredients list from the recipe here…" style="min-height:90px;"></textarea>
-        <div class="empty-state" style="text-align:left; padding:6px 0 0;">We can't open webpages directly from here — paste the text (like the ingredients list) and we'll pull out quantities and units.</div>
-        <button type="button" class="btn primary" id="importTextBtn" style="width:100%; margin-top:8px;">Extract ingredients</button>
+      <div id="quickImportWithKey" style="display:none;">
+        <div class="chip-row" style="margin-bottom:8px;">
+          <button type="button" class="chip" id="showImportText">📋 Paste recipe text</button>
+          <button type="button" class="chip" id="showImportPhoto">📷 Scan a photo</button>
+        </div>
+        <div id="importTextPanel" style="display:none; margin-bottom:10px;">
+          <input type="text" id="importUrl" placeholder="Recipe link (optional, for your reference)" style="margin-bottom:8px;">
+          <textarea id="importText" placeholder="Paste the ingredients list from the recipe here…" style="min-height:90px;"></textarea>
+          <div class="empty-state" style="text-align:left; padding:6px 0 0;">We can't open webpages directly from here — paste the text (like the ingredients list) and we'll pull out quantities and units.</div>
+          <button type="button" class="btn primary" id="importTextBtn" style="width:100%; margin-top:8px;">Extract ingredients</button>
+        </div>
+        <div id="importPhotoPanel" style="display:none; margin-bottom:10px;">
+          <input type="file" accept="image/*" capture="environment" id="importPhotoInput">
+          <div class="empty-state" style="text-align:left; padding:6px 0 0;">Take or choose a photo of the printed recipe page.</div>
+        </div>
+        <div id="importStatus" class="empty-state" style="display:none; text-align:left; padding:0 0 6px;"></div>
       </div>
-      <div id="importPhotoPanel" style="display:none; margin-bottom:10px;">
-        <input type="file" accept="image/*" capture="environment" id="importPhotoInput">
-        <div class="empty-state" style="text-align:left; padding:6px 0 0;">Take or choose a photo of the printed recipe page.</div>
-      </div>
-      <div id="importStatus" class="empty-state" style="display:none; text-align:left; padding:0 0 6px;"></div>
     </div>
     <div class="field">
       <label>Ingredients</label>
@@ -1009,6 +1035,7 @@
   let familyId = null;
   let familyName = null;
   let familyInviteCode = null;
+  let userApiKey = null;
 
   const PALETTE = ["#B23A48", "#C1652E", "#B8860B", "#6E8F1F", "#1F7A6C", "#2E6DA4", "#5B4B8A", "#A03D8F", "#6B4F3B", "#4A4F57"];
 
@@ -2309,6 +2336,7 @@
     document.getElementById("importUrl").value = "";
     document.getElementById("importPhotoInput").value = "";
     setImportStatus("");
+    refreshQuickImportUI();
     openScrim();
     document.getElementById("mealEditSheet").classList.add("show");
   }
@@ -2317,20 +2345,48 @@
     closeScrim();
   }
 
-  // ---- AI-assisted ingredient import (sample capability) ----
-  let sampleTool; // undefined = not yet resolved, null = unavailable, function = ready
-  async function getSample() {
-    if (sampleTool !== undefined) return sampleTool;
-    try {
-      if (window.claude && window.claude.use) {
-        sampleTool = await window.claude.use("sample");
-      } else {
-        sampleTool = null;
-      }
-    } catch (e) {
-      sampleTool = null;
+  // ---- AI-assisted ingredient import (bring-your-own Anthropic API key) ----
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  async function callClaudeAPI(promptText, imageFile) {
+    if (!userApiKey) { const e = new Error("No API key connected."); e.code = "no-key"; throw e; }
+    const content = [];
+    if (imageFile) {
+      const base64 = await fileToBase64(imageFile);
+      content.push({ type: "image", source: { type: "base64", media_type: imageFile.type || "image/jpeg", data: base64 } });
     }
-    return sampleTool;
+    content.push({ type: "text", text: promptText });
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": userApiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        messages: [{ role: "user", content }]
+      })
+    });
+    if (!resp.ok) {
+      let msg = "HTTP " + resp.status;
+      try { const errBody = await resp.json(); if (errBody && errBody.error && errBody.error.message) msg = errBody.error.message; } catch (e) {}
+      const err = new Error(msg);
+      err.code = resp.status === 401 ? "bad-key" : "api-error";
+      throw err;
+    }
+    const data = await resp.json();
+    const text = (data.content || []).map(b => b.text || "").join("");
+    const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+    return JSON.parse(cleaned);
   }
   function setImportStatus(msg) {
     const el = document.getElementById("importStatus");
@@ -2359,12 +2415,15 @@
     renderIngredientRows();
     setImportStatus("Added " + clean.length + " ingredient" + (clean.length === 1 ? "" : "s") + " — check them over below.");
   }
+  function friendlyAiError(err) {
+    if (err && err.code === "no-key") return "Connect your AI first (🤖 icon at the top) to use this.";
+    if (err && err.code === "bad-key") return "That API key isn't working — check it under the 🤖 AI settings.";
+    return "Couldn't reach the AI — " + ((err && err.message) || "please try again.");
+  }
   async function extractIngredientsFromText() {
     const text = document.getElementById("importText").value.trim();
     const url = document.getElementById("importUrl").value.trim();
     if (!text) return;
-    const sample = await getSample();
-    if (!sample) { setImportStatus("AI extraction isn't available right now."); return; }
     setImportStatus("Reading ingredients…");
     try {
       const prompt =
@@ -2374,19 +2433,17 @@
         UNITS.filter(Boolean).join(", ") + ".\n\n" +
         (url ? ("Reference link (for context only): " + url + "\n\n") : "") +
         "Recipe text:\n" + text.slice(0, 6000);
-      const result = await sample.json(prompt, { modelTier: "quick" });
+      const result = await callClaudeAPI(prompt, null);
       applyExtractedIngredients(result);
     } catch (e) {
       console.error(e);
-      setImportStatus("Couldn't extract ingredients — try pasting just the ingredients list.");
+      setImportStatus(friendlyAiError(e));
     }
   }
   async function extractIngredientsFromPhoto() {
     const input = document.getElementById("importPhotoInput");
     const file = input.files && input.files[0];
     if (!file) return;
-    const sample = await getSample();
-    if (!sample) { setImportStatus("AI extraction isn't available right now."); return; }
     setImportStatus("Reading the photo…");
     try {
       const prompt =
@@ -2394,11 +2451,54 @@
         '{"title": string|null, "ingredients": [{"name": string, "qty": string, "unit": string}]}. ' +
         'Use "" for qty or unit when not specified. For unit, use the closest match from this exact list (or "" if none fit): ' +
         UNITS.filter(Boolean).join(", ") + ".";
-      const result = await sample.json(prompt, { images: file, modelTier: "quick" });
+      const result = await callClaudeAPI(prompt, file);
       applyExtractedIngredients(result);
     } catch (e) {
       console.error(e);
-      setImportStatus("Couldn't read that photo — try a clearer, well-lit shot of the ingredients list.");
+      setImportStatus(friendlyAiError(e));
+    }
+  }
+
+  function refreshQuickImportUI() {
+    document.getElementById("quickImportNoKey").style.display = userApiKey ? "none" : "";
+    document.getElementById("quickImportWithKey").style.display = userApiKey ? "" : "none";
+  }
+
+  // ---- AI settings sheet ----
+  function openAiSettingsSheet() {
+    document.getElementById("aiApiKeyInput").value = userApiKey || "";
+    setAuthError("aiKeyError", "");
+    openScrim();
+    document.getElementById("aiSettingsSheet").classList.add("show");
+  }
+  function closeAiSettingsSheet() {
+    document.getElementById("aiSettingsSheet").classList.remove("show");
+    closeScrim();
+  }
+  async function saveAiKey() {
+    const key = document.getElementById("aiApiKeyInput").value.trim();
+    setAuthError("aiKeyError", "");
+    if (!key) { setAuthError("aiKeyError", "Paste a key first, or use Remove to clear it."); return; }
+    try {
+      await firestore.collection("users").doc(currentUser.uid).set({ anthropicApiKey: key }, { merge: true });
+      userApiKey = key;
+      refreshQuickImportUI();
+      closeAiSettingsSheet();
+    } catch (err) {
+      console.error(err);
+      setAuthError("aiKeyError", "Couldn't save that — try again.");
+    }
+  }
+  async function removeAiKey() {
+    try {
+      await firestore.collection("users").doc(currentUser.uid).set({ anthropicApiKey: firebase.firestore.FieldValue.delete() }, { merge: true });
+      userApiKey = null;
+      document.getElementById("aiApiKeyInput").value = "";
+      refreshQuickImportUI();
+      closeAiSettingsSheet();
+    } catch (err) {
+      console.error(err);
+      setAuthError("aiKeyError", "Couldn't remove that — try again.");
     }
   }
 
@@ -3008,6 +3108,7 @@
   document.getElementById("scrim").addEventListener("click", () => {
     closeEventSheet(); closeMembersSheet(); closeSlotSheet(); closeMealEditSheet(); closeDayView();
     closeHolidaysSheet(); closeCustomHolidaySheet(); closeTermsSheet(); closeTermEditSheet();
+    closeAiSettingsSheet();
   });
 
   document.getElementById("prevWeek").addEventListener("click", () => {
@@ -3039,9 +3140,11 @@
   });
   document.getElementById("importTextBtn").addEventListener("click", extractIngredientsFromText);
   document.getElementById("importPhotoInput").addEventListener("change", extractIngredientsFromPhoto);
-  getSample().then(s => {
-    if (!s) document.getElementById("quickImportField").style.display = "none";
-  });
+  document.getElementById("connectAiPrompt").addEventListener("click", openAiSettingsSheet);
+  document.getElementById("aiSettingsBtn").addEventListener("click", openAiSettingsSheet);
+  document.getElementById("aiSettingsClose").addEventListener("click", closeAiSettingsSheet);
+  document.getElementById("saveAiKeyBtn").addEventListener("click", saveAiKey);
+  document.getElementById("removeAiKeyBtn").addEventListener("click", removeAiKey);
 
   document.getElementById("dayViewClose").addEventListener("click", closeDayView);
   document.getElementById("dayViewPrev").addEventListener("click", () => shiftDayView(-1));
@@ -3167,6 +3270,7 @@
     try {
       const udoc = await firestore.collection("users").doc(user.uid).get();
       const udata = udoc.exists ? udoc.data() : null;
+      userApiKey = (udata && udata.anthropicApiKey) ? udata.anthropicApiKey : null;
       if (udata && udata.familyId) {
         familyId = udata.familyId;
         try {
