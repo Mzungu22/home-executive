@@ -1051,6 +1051,7 @@
   let aiProvider = "none"; // "none" | "gemini" | "anthropic"
   let userGeminiKey = null;
   let userAnthropicKey = null;
+  let returnToMealEditAfterAiSettings = false;
 
   const PALETTE = ["#B23A48", "#C1652E", "#B8860B", "#6E8F1F", "#1F7A6C", "#2E6DA4", "#5B4B8A", "#A03D8F", "#6B4F3B", "#4A4F57"];
 
@@ -2611,9 +2612,16 @@
     openScrim();
     document.getElementById("aiSettingsSheet").classList.add("show");
   }
-  function closeAiSettingsSheet() {
+  function closeAiSettingsSheet(allowReturn) {
     document.getElementById("aiSettingsSheet").classList.remove("show");
-    closeScrim();
+    if (allowReturn !== false && returnToMealEditAfterAiSettings) {
+      returnToMealEditAfterAiSettings = false;
+      updateAiModeLabel();
+      document.getElementById("mealEditSheet").classList.add("show");
+    } else {
+      returnToMealEditAfterAiSettings = false;
+      closeScrim();
+    }
   }
   async function saveAiSettings() {
     const provider = document.getElementById("aiProviderSelect").value;
@@ -3244,7 +3252,7 @@
   document.getElementById("scrim").addEventListener("click", () => {
     closeEventSheet(); closeMembersSheet(); closeSlotSheet(); closeMealEditSheet(); closeDayView();
     closeHolidaysSheet(); closeCustomHolidaySheet(); closeTermsSheet(); closeTermEditSheet();
-    closeAiSettingsSheet();
+    closeAiSettingsSheet(false);
   });
 
   document.getElementById("prevWeek").addEventListener("click", () => {
@@ -3276,9 +3284,13 @@
   });
   document.getElementById("importTextBtn").addEventListener("click", extractIngredientsFromText);
   document.getElementById("importPhotoInput").addEventListener("change", extractIngredientsFromPhoto);
-  document.getElementById("connectAiPrompt").addEventListener("click", openAiSettingsSheet);
+  document.getElementById("connectAiPrompt").addEventListener("click", () => {
+    returnToMealEditAfterAiSettings = true;
+    document.getElementById("mealEditSheet").classList.remove("show");
+    openAiSettingsSheet();
+  });
   document.getElementById("aiSettingsBtn").addEventListener("click", openAiSettingsSheet);
-  document.getElementById("aiSettingsClose").addEventListener("click", closeAiSettingsSheet);
+  document.getElementById("aiSettingsClose").addEventListener("click", () => closeAiSettingsSheet());
   document.getElementById("saveAiKeyBtn").addEventListener("click", saveAiSettings);
   document.getElementById("aiProviderSelect").addEventListener("change", updateAiProviderFieldVisibility);
 
