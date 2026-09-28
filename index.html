@@ -475,6 +475,8 @@
     border-bottom: none;
   }
   .sheet.show { transform: translateY(0); }
+  /* Sits in front of any other open sheet (e.g. the recipe editor) */
+  #aiSettingsSheet { z-index: 45; box-shadow: 0 -10px 30px rgba(0,0,0,0.25); }
   .sheet h3 { margin: 0 0 14px; font-size: 17px; }
   .field { margin-bottom: 13px; }
   .field label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin-bottom: 5px; }
@@ -736,6 +738,7 @@
 
   <!-- Event sheet -->
   <div class="scrim" id="scrim"></div>
+  <div class="scrim" id="aiScrim" style="z-index:44;"></div>
   <div class="sheet" id="eventSheet">
     <h3 id="eventSheetTitle">New event</h3>
     <div class="field">
@@ -1051,7 +1054,6 @@
   let aiProvider = "none"; // "none" | "gemini" | "anthropic"
   let userGeminiKey = null;
   let userAnthropicKey = null;
-  let returnToMealEditAfterAiSettings = false;
 
   const PALETTE = ["#B23A48", "#C1652E", "#B8860B", "#6E8F1F", "#1F7A6C", "#2E6DA4", "#5B4B8A", "#A03D8F", "#6B4F3B", "#4A4F57"];
 
@@ -2610,18 +2612,15 @@
     updateAiProviderFieldVisibility();
     setAuthError("aiKeyError", "");
     openScrim();
+    document.getElementById("aiScrim").classList.add("show");
     document.getElementById("aiSettingsSheet").classList.add("show");
   }
-  function closeAiSettingsSheet(allowReturn) {
+  function closeAiSettingsSheet() {
     document.getElementById("aiSettingsSheet").classList.remove("show");
-    if (allowReturn !== false && returnToMealEditAfterAiSettings) {
-      returnToMealEditAfterAiSettings = false;
-      updateAiModeLabel();
-      document.getElementById("mealEditSheet").classList.add("show");
-    } else {
-      returnToMealEditAfterAiSettings = false;
-      closeScrim();
-    }
+    document.getElementById("aiScrim").classList.remove("show");
+    updateAiModeLabel();
+    // Only remove the shared backdrop if no other sheet (e.g. the recipe editor) is still open
+    if (!document.querySelector(".sheet.show")) closeScrim();
   }
   async function saveAiSettings() {
     const provider = document.getElementById("aiProviderSelect").value;
@@ -3252,7 +3251,7 @@
   document.getElementById("scrim").addEventListener("click", () => {
     closeEventSheet(); closeMembersSheet(); closeSlotSheet(); closeMealEditSheet(); closeDayView();
     closeHolidaysSheet(); closeCustomHolidaySheet(); closeTermsSheet(); closeTermEditSheet();
-    closeAiSettingsSheet(false);
+    closeAiSettingsSheet();
   });
 
   document.getElementById("prevWeek").addEventListener("click", () => {
@@ -3284,13 +3283,11 @@
   });
   document.getElementById("importTextBtn").addEventListener("click", extractIngredientsFromText);
   document.getElementById("importPhotoInput").addEventListener("change", extractIngredientsFromPhoto);
-  document.getElementById("connectAiPrompt").addEventListener("click", () => {
-    returnToMealEditAfterAiSettings = true;
-    document.getElementById("mealEditSheet").classList.remove("show");
-    openAiSettingsSheet();
-  });
+  // Both robot buttons open the very same sheet; from the recipe editor it layers on top.
+  document.getElementById("connectAiPrompt").addEventListener("click", openAiSettingsSheet);
   document.getElementById("aiSettingsBtn").addEventListener("click", openAiSettingsSheet);
-  document.getElementById("aiSettingsClose").addEventListener("click", () => closeAiSettingsSheet());
+  document.getElementById("aiSettingsClose").addEventListener("click", closeAiSettingsSheet);
+  document.getElementById("aiScrim").addEventListener("click", closeAiSettingsSheet);
   document.getElementById("saveAiKeyBtn").addEventListener("click", saveAiSettings);
   document.getElementById("aiProviderSelect").addEventListener("change", updateAiProviderFieldVisibility);
 
