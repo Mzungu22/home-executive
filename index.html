@@ -3024,10 +3024,9 @@
         resetMemberForm();
         return;
       }
-      db.collection("members").doc(id).set(data).then(() => {
-        renderMembersSheetList();
-        resetMemberForm();
-      }).catch(console.error);
+      db.collection("members").doc(id).set(data).catch(console.error);
+      // Reset straight away; the live listener refreshes the list as soon as the change lands
+      resetMemberForm();
       return;
     }
 
@@ -3041,11 +3040,10 @@
       renderColorPick();
       return;
     }
-    db.collection("members").add(data).then(() => {
-      document.getElementById("newMemberName").value = "";
-      pickedColor = pickAvailableColor();
-      renderColorPick();
-    }).catch(console.error);
+    db.collection("members").add(data).catch(console.error);
+    document.getElementById("newMemberName").value = "";
+    pickedColor = pickAvailableColor();
+    renderColorPick();
   }
 
   function deleteMember(id) {
@@ -3217,6 +3215,7 @@
     renderGrid();
     renderDayPanel();
     renderUpcoming();
+    renderMembersSheetList(); // keeps the family sheet current the moment anything changes
   }
 
   // ---------- Tabs ----------
