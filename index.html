@@ -94,6 +94,40 @@
   }
   .icon-btn:active { transform: scale(0.94); }
 
+  /* ---------- Header menu ---------- */
+  .menu-wrap { position: relative; flex-shrink: 0; }
+  .menu-panel {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 220px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+    padding: 6px;
+    z-index: 30;
+  }
+  .menu-panel.show { display: block; }
+  .menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 14.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .menu-item:hover, .menu-item:active { background: var(--paper-dim); }
+  .menu-item.danger { color: var(--danger); }
+  .menu-sep { height: 1px; background: var(--line); margin: 6px 4px; }
+
   /* ---------- Tabs ---------- */
   nav.tabs {
     display: flex;
@@ -655,12 +689,22 @@
         <h1>Home Executive</h1>
         <div class="tagline" id="taglineText">The family, at a glance</div>
       </div>
-      <div style="display:flex; gap:8px; flex-shrink:0;">
-        <button class="icon-btn" id="holidaysBtn" title="Public holidays">🌐</button>
-        <button class="icon-btn" id="termsBtn" title="School terms">🏫</button>
-        <button class="icon-btn" id="membersBtn" title="Family members">👪</button>
-        <button class="icon-btn" id="aiSettingsBtn" title="AI settings">🤖</button>
-        <button class="icon-btn" id="signOutBtn" title="Sign out">🚪</button>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menuBtn" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <line x1="3" y1="5" x2="17" y2="5"/>
+            <line x1="3" y1="10" x2="17" y2="10"/>
+            <line x1="3" y1="15" x2="17" y2="15"/>
+          </svg>
+        </button>
+        <div class="menu-panel" id="mainMenu" role="menu">
+          <button class="menu-item" id="membersBtn" role="menuitem">Family members</button>
+          <button class="menu-item" id="holidaysBtn" role="menuitem">Public holidays</button>
+          <button class="menu-item" id="termsBtn" role="menuitem">School terms</button>
+          <button class="menu-item" id="aiSettingsBtn" role="menuitem">Ingredient scanning</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item danger" id="signOutBtn" role="menuitem">Sign out</button>
+        </div>
       </div>
     </div>
     <nav class="tabs">
@@ -3220,6 +3264,26 @@
     document.getElementById("evEndDateField").style.display = on ? "none" : "";
     document.getElementById("evRecurFields").style.display = on ? "" : "none";
   });
+  // ---- Header menu (hamburger) ----
+  (function setupMainMenu() {
+    const btn = document.getElementById("menuBtn");
+    const panel = document.getElementById("mainMenu");
+    function setOpen(open) {
+      panel.classList.toggle("show", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      setOpen(!panel.classList.contains("show"));
+    });
+    // Choosing any item closes the menu (each item's own handler still runs)
+    panel.addEventListener("click", () => setOpen(false));
+    // Tapping anywhere else, or pressing Escape, also closes it
+    document.addEventListener("click", (ev) => {
+      if (!panel.contains(ev.target) && ev.target !== btn) setOpen(false);
+    });
+    document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") setOpen(false); });
+  })();
   document.getElementById("membersBtn").addEventListener("click", openMembersSheet);
   document.getElementById("membersClose").addEventListener("click", closeMembersSheet);
   document.getElementById("memberAdd").addEventListener("click", addMember);
