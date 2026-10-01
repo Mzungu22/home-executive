@@ -985,21 +985,29 @@
   <!-- Slot assign sheet -->
   <div class="sheet" id="slotSheet">
     <h3 id="slotSheetTitle">Assign a meal</h3>
+    <div class="field" id="slotEntriesField" style="display:none;">
+      <label>Already planned</label>
+      <div id="slotEntriesList"></div>
+    </div>
     <div class="field">
-      <label>From your library</label>
+      <label>Add a recipe from your library</label>
       <div class="slot-chip-row" id="slotMealChips"></div>
     </div>
     <div class="field" id="slotHeadcountField" style="display:none;">
       <label>Servings needed</label>
       <input type="number" id="slotHeadcount" min="1" step="1">
     </div>
+    <button class="add-row" id="slotAddMeal" style="margin-bottom:14px;">+ Add this recipe</button>
     <div class="field">
-      <label>Or type something quick</label>
-      <input type="text" id="slotCustomText" placeholder="Leftovers, takeout, eating out…">
+      <label>Or add something quick</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="slotCustomText" placeholder="Leftovers, takeout, eating out…" style="flex:1;">
+        <button class="btn ghost" id="slotAddCustom" style="flex-shrink:0;">Add</button>
+      </div>
     </div>
     <div class="sheet-actions">
-      <button class="btn ghost" id="slotClear">Clear</button>
-      <button class="btn primary" id="slotSave">Save</button>
+      <button class="btn ghost" id="slotClear">Clear all</button>
+      <button class="btn primary" id="slotSave">Done</button>
     </div>
   </div>
 
@@ -1118,10 +1126,12 @@
   let meals = [];          // {id, name, ingredients:[string]}
   let mealPlan = {};        // { "YYYY-MM-DD": { breakfast: slot, lunch: slot, dinner: slot } }
                              // slot = { type: "meal", mealId } | { type: "custom", text }
+                             // (each day's slot value is an array of entries — see getSlotEntries())
   let weekStart = startOfWeek(new Date());
   let editingMealId = null;
   let activeSlot = null;    // { date, mealType }
   let slotMealChoice = null;
+  let workingSlotEntries = []; // entries being built up for the slot currently open in the sheet
   const MEAL_TYPES = [["breakfast","Breakfast"], ["lunch","Lunch"], ["dinner","Dinner"]];
   const UNITS = ["", "g", "kg", "ml", "L", "tsp", "tbsp", "cup", "oz", "lb", "pinch", "slice", "pcs"];
 
@@ -1852,6 +1862,12 @@
   }
 
   // ---------- Meals rendering ----------
+  function getSlotEntries(dayPlan, mkey) {
+    const v = dayPlan && dayPlan[mkey];
+    if (!v) return [];
+    return Array.isArray(v) ? v : [v]; // wraps older single-entry data for compatibility
+  }
+
   function renderMealsWeek() {
     document.getElementById("weekLabel").textContent = fmtWeekLabel(weekStart);
     const wrap = document.getElementById("mealWeekGrid");
@@ -1876,7 +1892,7 @@
       block.appendChild(heading);
 
       MEAL_TYPES.forEach(([key, label]) => {
-        const slot = (mealPlan[ds] || {})[key];
+        const entries = getSlotEntries(mealPlan[ds], key);
         const row = document.createElement("div");
         row.className = "slot-row";
         const lab = document.createElement("div");
@@ -1884,8 +1900,8 @@
         lab.textContent = label;
         row.appendChild(lab);
         const val = document.createElement("div");
-        val.className = "slot-value" + (slot ? "" : " empty");
-        val.textContent = slot ? slotLabel(slot) : "Tap to plan";
+        val.className = "slot-value" + (entries.length ? "" : " empty");
+        val.textContent = entries.length ? entries.map(slotLabel).join(", ") : "Tap to plan";
         row.appendChild(val);
         row.addEventListener("click", () => openSlotSheet(ds, key));
         block.appendChild(row);
@@ -1956,22 +1972,23 @@
       const dayPlan = mealPlan[ds];
       if (!dayPlan) continue;
       MEAL_TYPES.forEach(([mkey]) => {
-        const slot = dayPlan[mkey];
-        if (!slot || slot.type !== "meal") return;
-        const meal = meals.find(x => x.id === slot.mealId);
-        if (!meal || !meal.ingredients) return;
-        const recipeServings = meal.servings || 4;
-        const factor = slot.headcount ? (slot.headcount / recipeServings) : 1;
-        meal.ingredients.forEach(raw => {
-          const ing = normIng(raw);
-          const name = ing.name.trim();
-          if (!name) return;
-          const unit = (ing.unit || "").trim();
-          const key = name.toLowerCase() + "|" + unit.toLowerCase();
-          if (!itemMap[key]) itemMap[key] = { name, unit, qty: 0, hasQty: false, from: new Set() };
-          const q = parseFloat(ing.qty);
-          if (!isNaN(q) && ing.qty !== "") { itemMap[key].qty += q * factor; itemMap[key].hasQty = true; }
-          itemMap[key].from.add(meal.name);
+        getSlotEntries(dayPlan, mkey).forEach(slot => {
+          if (!slot || slot.type !== "meal") return;
+          const meal = meals.find(x => x.id === slot.mealId);
+          if (!meal || !meal.ingredients) return;
+          const recipeServings = meal.servings || 4;
+          const factor = slot.headcount ? (slot.headcount / recipeServings) : 1;
+          meal.ingredients.forEach(raw => {
+            const ing = normIng(raw);
+            const name = ing.name.trim();
+            if (!name) return;
+            const unit = (ing.unit || "").trim();
+            const key = name.toLowerCase() + "|" + unit.toLowerCase();
+            if (!itemMap[key]) itemMap[key] = { name, unit, qty: 0, hasQty: false, from: new Set() };
+            const q = parseFloat(ing.qty);
+            if (!isNaN(q) && ing.qty !== "") { itemMap[key].qty += q * factor; itemMap[key].hasQty = true; }
+            itemMap[key].from.add(meal.name);
+          });
         });
       });
     }
@@ -2086,6 +2103,30 @@
       wrap.appendChild(chip);
     });
     updateSlotHeadcountVisibility();
+  }
+
+  function renderSlotEntriesList() {
+    const field = document.getElementById("slotEntriesField");
+    const wrap = document.getElementById("slotEntriesList");
+    wrap.innerHTML = "";
+    if (!workingSlotEntries.length) { field.style.display = "none"; return; }
+    field.style.display = "";
+    workingSlotEntries.forEach((entry, idx) => {
+      const row = document.createElement("div");
+      row.className = "member-row";
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = slotLabel(entry);
+      row.appendChild(name);
+      const del = document.createElement("button");
+      del.textContent = "✕";
+      del.addEventListener("click", () => {
+        workingSlotEntries.splice(idx, 1);
+        renderSlotEntriesList();
+      });
+      row.appendChild(del);
+      wrap.appendChild(row);
+    });
   }
 
   // ---------- Sheets ----------
@@ -2366,13 +2407,14 @@
 
   function openSlotSheet(dateStr, mealType) {
     activeSlot = { date: dateStr, mealType };
-    const existing = (mealPlan[dateStr] || {})[mealType];
-    slotMealChoice = existing && existing.type === "meal" ? existing.mealId : null;
-    document.getElementById("slotCustomText").value = existing && existing.type === "custom" ? existing.text : "";
-    document.getElementById("slotHeadcount").value = existing && existing.type === "meal" && existing.headcount ? existing.headcount : "";
+    workingSlotEntries = getSlotEntries(mealPlan[dateStr], mealType).slice();
+    slotMealChoice = null;
+    document.getElementById("slotCustomText").value = "";
+    document.getElementById("slotHeadcount").value = "";
     const label = MEAL_TYPES.find(([k]) => k === mealType)[1];
     const d = new Date(dateStr + "T00:00:00");
     document.getElementById("slotSheetTitle").textContent = label + " · " + d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    renderSlotEntriesList();
     renderSlotMealChips();
     updateSlotHeadcountVisibility();
     openScrim();
@@ -2381,6 +2423,22 @@
   function closeSlotSheet() {
     document.getElementById("slotSheet").classList.remove("show");
     closeScrim();
+  }
+  function addMealToSlot() {
+    if (!slotMealChoice) return;
+    const headcount = parseInt(document.getElementById("slotHeadcount").value, 10) || null;
+    workingSlotEntries.push({ type: "meal", mealId: slotMealChoice, headcount });
+    slotMealChoice = null;
+    document.getElementById("slotHeadcount").value = "";
+    renderSlotEntriesList();
+    renderSlotMealChips();
+  }
+  function addCustomToSlot() {
+    const text = document.getElementById("slotCustomText").value.trim();
+    if (!text) return;
+    workingSlotEntries.push({ type: "custom", text });
+    document.getElementById("slotCustomText").value = "";
+    renderSlotEntriesList();
   }
 
   function openMealEditSheet(existing) {
@@ -3061,37 +3119,35 @@
 
   function saveSlot() {
     if (!activeSlot) return;
+    // Pick up anything still sitting in the "add" controls before committing.
+    if (slotMealChoice) addMealToSlot();
+    if (document.getElementById("slotCustomText").value.trim()) addCustomToSlot();
     const { date, mealType } = activeSlot;
-    const customText = document.getElementById("slotCustomText").value.trim();
-    let slot = null;
-    if (slotMealChoice) {
-      const headcount = parseInt(document.getElementById("slotHeadcount").value, 10) || null;
-      slot = { type: "meal", mealId: slotMealChoice, headcount };
-    } else if (customText) slot = { type: "custom", text: customText };
+    const entries = workingSlotEntries.slice();
 
     if (!db) {
       const day = Object.assign({}, mealPlan[date]);
-      if (slot) day[mealType] = slot; else delete day[mealType];
+      if (entries.length) day[mealType] = entries; else delete day[mealType];
       mealPlan = Object.assign({}, mealPlan, { [date]: day });
       saveLocal();
       afterMealPlanChanged();
       closeSlotSheet();
       return;
     }
-    const data = {};
-    data[mealType] = slot; // null clears the field via update? update() requires field to exist; use set-merge instead
     const ref = db.collection("mealPlan").doc(date);
     ref.get().then(snap => {
       const body = snap.exists ? Object.assign({}, snap.data()) : {};
-      if (slot) body[mealType] = slot; else delete body[mealType];
+      if (entries.length) body[mealType] = entries; else delete body[mealType];
       return ref.set(body);
     }).catch(console.error);
     closeSlotSheet();
   }
 
   function clearSlot() {
+    workingSlotEntries = [];
     slotMealChoice = null;
     document.getElementById("slotCustomText").value = "";
+    renderSlotEntriesList();
     saveSlot();
   }
 
@@ -3328,6 +3384,8 @@
   document.getElementById("addMeal").addEventListener("click", () => openMealEditSheet(null));
   document.getElementById("slotSave").addEventListener("click", saveSlot);
   document.getElementById("slotClear").addEventListener("click", clearSlot);
+  document.getElementById("slotAddMeal").addEventListener("click", addMealToSlot);
+  document.getElementById("slotAddCustom").addEventListener("click", addCustomToSlot);
   document.getElementById("mealCancel").addEventListener("click", closeMealEditSheet);
   document.getElementById("mealSave").addEventListener("click", saveMeal);
   document.getElementById("addIngredientRow").addEventListener("click", () => {
