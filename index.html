@@ -3119,9 +3119,6 @@
 
   function saveSlot() {
     if (!activeSlot) return;
-    // Pick up anything still sitting in the "add" controls before committing.
-    if (slotMealChoice) addMealToSlot();
-    if (document.getElementById("slotCustomText").value.trim()) addCustomToSlot();
     const { date, mealType } = activeSlot;
     const entries = workingSlotEntries.slice();
 
