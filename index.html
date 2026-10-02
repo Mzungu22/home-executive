@@ -564,7 +564,11 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: var(--paper);
+    background:
+      radial-gradient(circle at 18% 12%, rgba(63,93,78,0.20), transparent 55%),
+      radial-gradient(circle at 88% 18%, rgba(200,154,60,0.18), transparent 50%),
+      radial-gradient(circle at 50% 100%, rgba(194,102,74,0.14), transparent 55%),
+      var(--paper);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -579,15 +583,25 @@
     max-width: 360px;
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 20px;
-    padding: 26px 22px;
+    border-radius: 26px;
+    padding: 30px 24px;
+    box-shadow: 0 24px 60px rgba(20,17,12,0.16);
   }
-  .auth-brand {
-    text-align: center;
-    font-size: 18px;
-    font-weight: 700;
-    margin-bottom: 20px;
+  .auth-brand { text-align: center; margin-bottom: 24px; }
+  .auth-icon {
+    width: 62px;
+    height: 62px;
+    margin: 0 auto 14px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--pine), var(--clay));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    box-shadow: 0 10px 22px rgba(63,93,78,0.35);
   }
+  .auth-title { font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
+  .auth-tagline { font-size: 12.5px; color: var(--ink-soft); margin-top: 5px; }
   .auth-step h2 { font-size: 18px; margin: 0 0 6px; }
   .auth-msg { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 16px; line-height: 1.5; }
   .auth-error {
@@ -607,7 +621,11 @@
 
 <div id="authOverlay" class="auth-overlay">
   <div class="auth-card">
-    <div class="auth-brand">🗓️ Home Executive</div>
+    <div class="auth-brand">
+      <div class="auth-icon">🗓️</div>
+      <div class="auth-title">Home Executive</div>
+      <div class="auth-tagline">One shared home base for the whole family</div>
+    </div>
 
     <div id="authSetupNeeded" class="auth-step" style="display:none;">
       <p class="auth-msg">This app isn't connected to a backend yet. Whoever set it up needs to add the Firebase configuration before anyone can sign in.</p>
