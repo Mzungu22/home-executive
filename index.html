@@ -736,6 +736,7 @@
           <button class="menu-item" id="holidaysBtn" role="menuitem">Public holidays</button>
           <button class="menu-item" id="termsBtn" role="menuitem">School terms</button>
           <button class="menu-item" id="aiSettingsBtn" role="menuitem">Ingredient scanning</button>
+          <button class="menu-item" id="calendarFileBtn" role="menuitem">Export &amp; import calendar</button>
           <div class="menu-sep"></div>
           <button class="menu-item" id="accountBtn" role="menuitem">Account</button>
           <button class="menu-item danger" id="signOutBtn" role="menuitem">Sign out</button>
@@ -792,6 +793,7 @@
         </div>
       </div>
       <div id="mealWeekGrid"></div>
+      <button class="add-row" id="copyLastWeekBtn" style="margin-top:10px;">Copy last week's meals into empty slots</button>
 
       <h3 class="section-title">Shopping list for this week</h3>
       <div id="shoppingList"></div>
@@ -807,9 +809,12 @@
 
     <!-- TODOS VIEW -->
     <section class="view" id="view-todos">
-      <div class="field" style="display:flex; gap:8px; align-items:center; margin-bottom:14px;">
-        <input type="text" id="newTodoText" placeholder="Add a to-do…" style="flex:1;">
-        <button class="icon-btn" id="addTodoBtn" style="width:44px;height:44px;flex-shrink:0;">+</button>
+      <div class="field" style="margin-bottom:14px;">
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <input type="text" id="newTodoText" placeholder="Add a to-do…" style="flex:1;">
+          <button class="icon-btn" id="addTodoBtn" style="width:44px;height:44px;flex-shrink:0;">+</button>
+        </div>
+        <div class="chip-row" id="newTodoAssigneeChips"></div>
       </div>
       <div id="todoList"></div>
     </section>
@@ -932,6 +937,24 @@
         <button class="btn ghost" id="accountDeleteCancel" style="flex:1;">Cancel</button>
         <button class="btn primary" id="accountDeleteConfirmBtn" style="flex:1; background:var(--danger);">Permanently delete</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Calendar export/import sheet -->
+  <div class="sheet" id="calendarFileSheet">
+    <h3>Export &amp; import calendar</h3>
+    <p class="auth-msg">Export every event in this calendar as a standard .ics file you can open in Apple Calendar, Google Calendar, or Outlook. Or import events from an .ics file someone else sent you.</p>
+    <div class="field">
+      <label>Export</label>
+      <button class="btn primary" id="exportICSBtn" style="width:100%;">Download .ics file</button>
+    </div>
+    <div class="field">
+      <label>Import</label>
+      <input type="file" accept=".ics,text/calendar" id="importICSInput">
+      <p class="empty-state" style="text-align:left; padding:6px 0 0;">Recurring events in an imported file come in as a single one-off event on their first date — you can make it repeat again afterward if needed.</p>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="calendarFileClose" style="flex:1;">Close</button>
     </div>
   </div>
 
@@ -1412,7 +1435,7 @@
   let shoppingAutoState = {};  // recipe-derived items: key (name|unit) -> {checked}
 
   // ---- To-do state ----
-  let todos = [];              // {id, text, done}
+  let todos = [];              // {id, text, done, memberId}
 
   // ---- Ingredient editor state ----
   let editingIngredients = []; // [{name, qty, unit}]
@@ -1465,6 +1488,113 @@
     const h = Math.floor(total / 60);
     const m = total % 60;
     return pad(h) + ":" + pad(m);
+  }
+
+  // ---------- Calendar file (.ics) export / import ----------
+  function escapeICS(s) {
+    return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  }
+  function unescapeICS(s) {
+    return s ? s.replace(/\\n/gi, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\") : s;
+  }
+  function fmtICSDate(dateStr, timeStr) {
+    const ymd = dateStr.replace(/-/g, "");
+    if (!timeStr) return ymd;
+    return ymd + "T" + timeStr.replace(":", "") + "00";
+  }
+  function buildICS() {
+    const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Home Executive//EN", "CALSCALE:GREGORIAN"];
+    events.forEach(e => {
+      lines.push("BEGIN:VEVENT");
+      lines.push("UID:" + e.id + "@homeexecutive");
+      lines.push("SUMMARY:" + escapeICS(e.title));
+      if (e.notes) lines.push("DESCRIPTION:" + escapeICS(e.notes));
+      if (e.time) {
+        lines.push("DTSTART:" + fmtICSDate(e.date, e.time));
+        lines.push("DTEND:" + fmtICSDate(e.date, e.endTime || addMinutes(e.time, 30)));
+      } else {
+        const endDate = e.endDate || e.date;
+        const endD = new Date(endDate + "T00:00:00");
+        endD.setDate(endD.getDate() + 1); // ICS all-day DTEND is exclusive
+        lines.push("DTSTART;VALUE=DATE:" + fmtICSDate(e.date, null));
+        lines.push("DTEND;VALUE=DATE:" + fmtICSDate(dstr(endD), null));
+      }
+      if (e.recurring && e.recurDays && e.recurDays.length) {
+        const byday = e.recurDays.map(d => ["SU","MO","TU","WE","TH","FR","SA"][d]).join(",");
+        let rrule = "FREQ=WEEKLY;BYDAY=" + byday;
+        if (e.recurUntil) rrule += ";UNTIL=" + fmtICSDate(e.recurUntil, null) + "T235959Z";
+        lines.push("RRULE:" + rrule);
+      }
+      lines.push("END:VEVENT");
+    });
+    lines.push("END:VCALENDAR");
+    return lines.join("\r\n");
+  }
+  function downloadICS() {
+    const blob = new Blob([buildICS()], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "home-executive-calendar.ics";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function parseICS(text) {
+    const found = [];
+    text.split("BEGIN:VEVENT").slice(1).forEach(chunk => {
+      const body = chunk.split("END:VEVENT")[0];
+      const getField = (name) => {
+        const m = body.match(new RegExp("^" + name + "[^:\\n]*:(.*)$", "im"));
+        return m ? m[1].trim() : null;
+      };
+      const summary = getField("SUMMARY");
+      const dtstart = getField("DTSTART");
+      if (!summary || !dtstart) return;
+      let date = null, time = "";
+      const allDayMatch = dtstart.match(/(\d{4})(\d{2})(\d{2})$/);
+      const timedMatch = dtstart.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/);
+      if (timedMatch) {
+        date = timedMatch[1] + "-" + timedMatch[2] + "-" + timedMatch[3];
+        time = timedMatch[4] + ":" + timedMatch[5];
+      } else if (allDayMatch) {
+        date = allDayMatch[1] + "-" + allDayMatch[2] + "-" + allDayMatch[3];
+      }
+      if (!date) return;
+      found.push({ title: unescapeICS(summary), date, time, notes: unescapeICS(getField("DESCRIPTION")) || "" });
+    });
+    return found;
+  }
+  async function importICSFile(file) {
+    const text = await file.text();
+    const parsed = parseICS(text);
+    if (!parsed.length) { alert("No events found in that file."); return; }
+    if (!confirm("Import " + parsed.length + " event" + (parsed.length === 1 ? "" : "s") + " into your calendar?")) return;
+    for (const ev of parsed) {
+      const data = {
+        title: ev.title, date: ev.date, endDate: "", time: ev.time,
+        endTime: ev.time ? addMinutes(ev.time, 30) : "", notes: ev.notes,
+        memberIds: [], recurring: false, recurDays: [], recurUntil: "",
+        recurSkipHolidays: false, recurTermMode: "always", updatedAt: Date.now()
+      };
+      if (!db) {
+        events.push(Object.assign({ id: "local_" + Date.now() + "_" + Math.random().toString(36).slice(2) }, data));
+      } else {
+        await db.collection("events").add(data).catch(console.error);
+      }
+    }
+    if (!db) { saveLocal(); afterEventsChanged(); }
+    alert("Imported " + parsed.length + " event" + (parsed.length === 1 ? "" : "s") + ".");
+  }
+  function openCalendarFileSheet() {
+    document.getElementById("importICSInput").value = "";
+    openScrim();
+    document.getElementById("calendarFileSheet").classList.add("show");
+  }
+  function closeCalendarFileSheet() {
+    document.getElementById("calendarFileSheet").classList.remove("show");
+    closeScrim();
   }
 
   // ---------- Holiday computation ----------
@@ -1927,6 +2057,33 @@
     const v = dayPlan && dayPlan[mkey];
     if (!v) return [];
     return Array.isArray(v) ? v : [v]; // wraps older single-entry data for compatibility
+  }
+
+  async function copyLastWeekPlan() {
+    if (!confirm("Copy last week's meals into any empty slots this week? Slots that already have something planned are left alone.")) return;
+    let anyChanges = false;
+    for (let i = 0; i < 7; i++) {
+      const thisDate = dstr(addDays(weekStart, i));
+      const lastDate = dstr(addDays(weekStart, i - 7));
+      const lastDayPlan = mealPlan[lastDate];
+      if (!lastDayPlan) continue;
+      const newDay = Object.assign({}, mealPlan[thisDate]);
+      let dayChanged = false;
+      MEAL_TYPES.forEach(([mkey]) => {
+        if (getSlotEntries(newDay, mkey).length) return; // already planned, leave it
+        const fromLast = getSlotEntries(lastDayPlan, mkey);
+        if (fromLast.length) { newDay[mkey] = fromLast.map(e => Object.assign({}, e)); dayChanged = true; }
+      });
+      if (!dayChanged) continue;
+      anyChanges = true;
+      if (!db) {
+        mealPlan = Object.assign({}, mealPlan, { [thisDate]: newDay });
+      } else {
+        await db.collection("mealPlan").doc(thisDate).set(newDay).catch(console.error);
+      }
+    }
+    if (!anyChanges) { alert("Nothing to copy — either last week has no meals planned, or this week's slots are already full."); return; }
+    if (!db) { saveLocal(); afterMealPlanChanged(); }
   }
 
   function renderMealsWeek() {
@@ -3312,6 +3469,27 @@
   }
 
   // ---------- To-dos ----------
+  let newTodoAssignee = null;
+  function renderNewTodoAssigneeChips() {
+    const wrap = document.getElementById("newTodoAssigneeChips");
+    wrap.innerHTML = "";
+    const noneChip = document.createElement("div");
+    noneChip.className = "chip" + (!newTodoAssignee ? " sel" : "");
+    noneChip.textContent = "Unassigned";
+    noneChip.addEventListener("click", () => { newTodoAssignee = null; renderNewTodoAssigneeChips(); });
+    wrap.appendChild(noneChip);
+    members.forEach(m => {
+      const chip = document.createElement("div");
+      chip.className = "chip" + (newTodoAssignee === m.id ? " sel" : "");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = m.color;
+      chip.appendChild(dot);
+      chip.appendChild(document.createTextNode(m.name));
+      chip.addEventListener("click", () => { newTodoAssignee = newTodoAssignee === m.id ? null : m.id; renderNewTodoAssigneeChips(); });
+      wrap.appendChild(chip);
+    });
+  }
   function renderTodos() {
     const wrap = document.getElementById("todoList");
     wrap.innerHTML = "";
@@ -3334,6 +3512,21 @@
       text.className = "text";
       text.textContent = t.text;
       row.appendChild(text);
+      const assigneeSelect = document.createElement("select");
+      assigneeSelect.style.cssText = "margin-left:auto; flex-shrink:0; max-width:92px; font-size:11.5px; padding:4px 6px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink);";
+      const noneOpt = document.createElement("option");
+      noneOpt.value = ""; noneOpt.textContent = "Unassigned";
+      assigneeSelect.appendChild(noneOpt);
+      members.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id; opt.textContent = m.name;
+        if (t.memberId === m.id) opt.selected = true;
+        assigneeSelect.appendChild(opt);
+      });
+      if (!t.memberId) noneOpt.selected = true;
+      assigneeSelect.addEventListener("click", (ev) => ev.stopPropagation());
+      assigneeSelect.addEventListener("change", (ev) => { ev.stopPropagation(); reassignTodo(t.id, assigneeSelect.value || null); });
+      row.appendChild(assigneeSelect);
       const del = document.createElement("button");
       del.className = "del";
       del.textContent = "✕";
@@ -3348,15 +3541,26 @@
     const input = document.getElementById("newTodoText");
     const text = input.value.trim();
     if (!text) return;
+    const memberId = newTodoAssignee;
     if (!db) {
-      todos.push({ id: "local_" + Date.now(), text, done: false });
+      todos.push({ id: "local_" + Date.now(), text, done: false, memberId });
       saveLocal();
       renderTodos();
       input.value = "";
+      newTodoAssignee = null;
+      renderNewTodoAssigneeChips();
       return;
     }
-    db.collection("todos").add({ text, done: false }).catch(console.error);
+    db.collection("todos").add({ text, done: false, memberId }).catch(console.error);
     input.value = "";
+    newTodoAssignee = null;
+    renderNewTodoAssigneeChips();
+  }
+  function reassignTodo(id, memberId) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    if (!db) { t.memberId = memberId; saveLocal(); renderTodos(); return; }
+    db.collection("todos").doc(id).update({ memberId }).catch(console.error);
   }
   function toggleTodo(id) {
     const t = todos.find(x => x.id === id);
@@ -3386,6 +3590,8 @@
     renderDayPanel();
     renderUpcoming();
     renderMembersSheetList(); // keeps the family sheet current the moment anything changes
+    renderNewTodoAssigneeChips();
+    renderTodos(); // refreshes each row's assignee dropdown options
   }
 
   // ---------- Tabs ----------
@@ -3453,6 +3659,13 @@
     });
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") setOpen(false); });
   })();
+  document.getElementById("calendarFileBtn").addEventListener("click", openCalendarFileSheet);
+  document.getElementById("calendarFileClose").addEventListener("click", closeCalendarFileSheet);
+  document.getElementById("exportICSBtn").addEventListener("click", downloadICS);
+  document.getElementById("importICSInput").addEventListener("change", (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (file) importICSFile(file);
+  });
   document.getElementById("accountBtn").addEventListener("click", openAccountSheet);
   document.getElementById("accountClose").addEventListener("click", closeAccountSheet);
   document.getElementById("accountDeleteBtn").addEventListener("click", startAccountDelete);
@@ -3489,7 +3702,7 @@
   document.getElementById("scrim").addEventListener("click", () => {
     closeEventSheet(); closeMembersSheet(); closeSlotSheet(); closeMealEditSheet(); closeDayView();
     closeHolidaysSheet(); closeCustomHolidaySheet(); closeTermsSheet(); closeTermEditSheet();
-    closeAiSettingsSheet(); closeAccountSheet();
+    closeAiSettingsSheet(); closeAccountSheet(); closeCalendarFileSheet();
   });
 
   document.getElementById("prevWeek").addEventListener("click", () => {
@@ -3500,6 +3713,7 @@
     weekStart = addDays(weekStart, 7);
     renderMealsWeek(); renderShoppingList();
   });
+  document.getElementById("copyLastWeekBtn").addEventListener("click", copyLastWeekPlan);
   document.getElementById("addMeal").addEventListener("click", () => openMealEditSheet(null));
   document.getElementById("slotSave").addEventListener("click", saveSlot);
   document.getElementById("slotClear").addEventListener("click", clearSlot);
@@ -3560,6 +3774,7 @@
   renderMealsWeek();
   renderMealLibrary();
   renderShoppingList();
+  renderNewTodoAssigneeChips();
   renderTodos();
 
   // ---------- DB wiring ----------
